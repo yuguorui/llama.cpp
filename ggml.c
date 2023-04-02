@@ -5,7 +5,7 @@
 
 #if defined(_MSC_VER) || defined(__MINGW32__)
 #include <malloc.h> // using malloc.h with MSC/MINGW
-#elif !defined(__FreeBSD__) && !defined(__NetBSD__) && !defined(__OpenBSD__)
+#elif !defined(__FreeBSD__) && !defined(__NetBSD__) && !defined(__OpenBSD__) && !defined(__SGX_ENCLAVE__)
 #include <alloca.h>
 #endif
 
@@ -19,6 +19,100 @@
 #include <inttypes.h>
 #include <stdio.h>
 #include <float.h>
+
+#ifdef __SGX_ENCLAVE__
+#include "Enclave_t.h"
+
+int clock_gettime(clockid_t clockid, struct timespec *tp) {
+    int ret, retval;
+    ret = ocall_clock_gettime(&retval, clockid, tp);
+    assert(ret == 0);
+    return retval;
+}
+
+clock_t clock(void) {
+    int ret;
+    clock_t retval;
+    ret = ocall_clock(&retval);
+    assert(ret == 0);
+    return retval;
+}
+
+int printf(const char* fmt, ...)
+{
+    char buf[BUFSIZ] = { '\0' };
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(buf, BUFSIZ, fmt, ap);
+    va_end(ap);
+    ocall_print_string(buf);
+    return (int)strnlen(buf, BUFSIZ - 1) + 1;
+}
+
+#define stdout (void *)1
+#define stderr (void *)2
+
+int fprintf(void *f, const char* fmt, ...)
+{
+    char buf[BUFSIZ] = { '\0' };
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(buf, BUFSIZ, fmt, ap);
+    va_end(ap);
+    if (f == stdout)
+        ocall_print_string(buf);
+    else if (f == stderr)
+        ocall_print_string_stderr(buf);
+    return (int)strnlen(buf, BUFSIZ - 1) + 1;
+}
+
+int open(const char *pathname, int flags) {
+    int ret, retval;
+    ret = ocall_open(&retval, pathname, flags);
+    assert(ret == 0);
+    return retval;
+}
+
+int close(int fd) {
+    int ret, retval;
+    ret = ocall_close(&retval, fd);
+    assert(ret == 0);
+    return retval;
+}
+
+off_t lseek(int fd, off_t offset, int whence) {
+    int ret;
+    off_t retval;
+    ret = ocall_lseek(&retval, fd, offset, whence);
+    assert(ret == 0);
+    return retval;
+}
+
+ssize_t read(int fd, void *buf, size_t count) {
+    int ret;
+    ssize_t retval;
+    ret = ocall_read(&retval, fd, buf, count);
+    assert(ret == 0);
+    return retval;
+}
+
+time_t time(time_t *tloc) {
+    int ret;
+    time_t retval;
+    ret = ocall_time(&retval, tloc);
+    assert(ret == 0);
+    return retval;
+}
+
+unsigned int sleep(unsigned int seconds) {
+    int ret;
+    unsigned int retval;
+    ret = ocall_sleep(&retval, seconds);
+    assert(ret == 0);
+    return retval;
+}
+
+#endif // __SGX_ENCLAVE__
 
 // if C99 - static_assert is noop
 // ref: https://stackoverflow.com/a/53923785/4039976
@@ -75,7 +169,54 @@ static int sched_yield (void) {
 }
 #else
 #include <pthread.h>
+
+#ifndef __SGX_ENCLAVE__
 #include <stdatomic.h>
+#else
+typedef volatile long atomic_int;
+typedef atomic_int atomic_bool;
+
+atomic_int atomic_fetch_add(atomic_int* variable, int value)
+{
+    __asm__ volatile("lock; xaddl %0, %1"
+      : "+r" (value), "+m" (*variable) // input + output
+      : // No input-only
+      : "memory"
+    );
+    return value;
+}
+
+atomic_int atomic_fetch_sub(atomic_int* variable, int value)
+{
+    return atomic_fetch_add(variable, -value);
+}
+
+atomic_int atomic_load(atomic_int* variable)
+{
+    int value = 0;
+    __asm__ volatile("lock; xchgl %0, %1"
+      : "+r" (value), "+m" (*variable) // input + output
+      : // No input-only
+      : "memory"
+    );
+    return value;
+}
+
+atomic_int atomic_store(atomic_int* variable, int value)
+{
+    __asm__ volatile("lock; xchgl %0, %1"
+      : "+r" (value), "+m" (*variable) // input + output
+      : // No input-only
+      : "memory"
+    );
+    return value;
+}
+
+static int sched_yield (void) {
+    sleep(0);
+    return 0;
+}
+#endif
 
 typedef void* thread_ret_t;
 #endif
@@ -180,7 +321,12 @@ typedef double ggml_float;
 #undef bool
 #define bool _Bool
 #else
+
+#ifdef __SGX_ENCLAVE__
+#include <sgx_intrin.h>
+#else
 #include <immintrin.h>
+#endif
 #endif
 #endif
 
@@ -9806,6 +9952,7 @@ static struct ggml_tensor * ggml_graph_get_parent(const struct ggml_cgraph * cgr
     return NULL;
 }
 
+#ifndef __SGX_ENCLAVE__
 void ggml_graph_dump_dot(const struct ggml_cgraph * gb, const struct ggml_cgraph * gf, const char * filename) {
     char color[16];
 
@@ -9920,6 +10067,7 @@ label=\"<x>CONST %d [%" PRId64 ", %" PRId64 "]\"; ]\n",
 
     GGML_PRINT("%s: dot -Tpng %s -o %s.png && open %s.png\n", __func__, filename, filename, filename);
 }
+#endif
 
 ////////////////////////////////////////////////////////////////////////////////
 

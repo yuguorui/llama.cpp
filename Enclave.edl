@@ -1,0 +1,29 @@
+/* Enclave.edl - Top EDL file. */
+
+enclave {
+	from "sgx_tstdc.edl" import *;
+	include "sgx_user_types.h" /* buffer_t */
+
+	trusted {
+		public int load_model([in, string]const char* model_path, int seed);
+	};
+
+	/* 
+	 * ocall_print_string - invokes OCALL to display string buffer inside the enclave.
+	 *  [in]: copy the string buffer to App outside.
+	 *  [string]: specifies 'str' is a NULL terminated buffer.
+	 */
+	untrusted {
+		void ocall_print_string([in, string] const char *str);
+		void ocall_print_string_stderr([in, string] const char *str);
+		int ocall_clock_gettime(clockid_t clockid, [out]struct timespec *tp);
+		clock_t ocall_clock(void);
+		time_t ocall_time([out]time_t *tloc);
+		int ocall_open([in, string]const char *pathname, int flags);
+		off_t ocall_lseek(int fd, off_t offset, int whence);
+		ssize_t ocall_read(int fd, [in, out, count=1, size=count]void *buf, size_t count);
+		int ocall_close(int fd);
+		unsigned int ocall_sleep(unsigned int seconds);
+	};
+
+};

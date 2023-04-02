@@ -5,6 +5,10 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#ifdef __SGX_ENCLAVE__
+#include "sgx_user_types.h"
+#endif 
+
 #ifdef LLAMA_SHARED
 #    if defined(_WIN32) && !defined(__MINGW32__)
 #        ifdef LLAMA_BUILD
@@ -76,12 +80,14 @@ extern "C" {
     // Frees all allocated memory
     LLAMA_API void llama_free(struct llama_context * ctx);
 
+#ifndef __SGX_ENCLAVE__
     // TODO: not great API - very likely to change
     // Returns 0 on success
     LLAMA_API int llama_model_quantize(
             const char * fname_inp,
             const char * fname_out,
                    int   itype);
+#endif
 
     // Returns the KV cache that will contain the context for the
     // ongoing prediction with the model.

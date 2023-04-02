@@ -37,3 +37,7 @@ __pycache__
 
 zig-out/
 zig-cache/
+
+Enclave_t.*
+Enclave_u.*
+llama_enclave.so
