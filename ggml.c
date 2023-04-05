@@ -91,9 +91,24 @@ off_t lseek(int fd, off_t offset, int whence) {
 ssize_t read(int fd, void *buf, size_t count) {
     int ret;
     ssize_t retval;
-    ret = ocall_read(&retval, fd, buf, count);
-    assert(ret == 0);
-    return retval;
+    size_t i = 0;
+    const size_t batch_size = 2<<20;
+
+    void *tmp = malloc(batch_size);
+    if (tmp == NULL) {
+        return -1;
+    }
+    while (count > 0) {
+        ret = ocall_read(&retval, fd, tmp, count > batch_size ? batch_size : count);
+        assert(ret == 0);
+        assert(retval >= 0);
+        memcpy(&((char *)buf)[i], tmp, retval);
+
+        i += retval;
+        count -= retval;
+    }
+    free(tmp);
+    return i;
 }
 
 time_t time(time_t *tloc) {
