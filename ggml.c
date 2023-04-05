@@ -191,7 +191,7 @@ static int sched_yield (void) {
 typedef volatile long atomic_int;
 typedef atomic_int atomic_bool;
 
-atomic_int atomic_fetch_add(atomic_int* variable, int value)
+long atomic_fetch_add(atomic_int* variable, long value)
 {
     __asm__ volatile("lock; xaddl %0, %1"
       : "+r" (value), "+m" (*variable) // input + output
@@ -201,12 +201,12 @@ atomic_int atomic_fetch_add(atomic_int* variable, int value)
     return value;
 }
 
-atomic_int atomic_fetch_sub(atomic_int* variable, int value)
+long atomic_fetch_sub(atomic_int* variable, long value)
 {
     return atomic_fetch_add(variable, -value);
 }
 
-atomic_int atomic_load(atomic_int* variable)
+long atomic_load(atomic_int* variable)
 {
     int value = 0;
     __asm__ volatile("lock; xchgl %0, %1"
@@ -217,7 +217,7 @@ atomic_int atomic_load(atomic_int* variable)
     return value;
 }
 
-atomic_int atomic_store(atomic_int* variable, int value)
+long atomic_store(atomic_int* variable, long value)
 {
     __asm__ volatile("lock; xchgl %0, %1"
       : "+r" (value), "+m" (*variable) // input + output
