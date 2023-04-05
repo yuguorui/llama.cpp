@@ -103,8 +103,6 @@ else
 	Urts_Library_Name := sgx_urts
 endif
 
-######## Enclave Settings ########
-
 ifneq ($(SGX_MODE), HW)
 	Trts_Library_Name := sgx_trts_sim
 	Service_Library_Name := sgx_tservice_sim
@@ -114,7 +112,21 @@ else
 endif
 Crypto_Library_Name := sgx_tcrypto
 
-Enclave_Cpp_Files := Enclave/Enclave.cpp
+######## App Settings ########
+App_Include_Paths := -I. -I$(SGX_SDK)/include
+App_C_Flags := -fPIC -Wno-attributes $(App_Include_Paths)
+ifeq ($(SGX_DEBUG), 1)
+        App_C_Flags += -DDEBUG -UNDEBUG -UEDEBUG
+else ifeq ($(SGX_PRERELEASE), 1)
+        App_C_Flags += -DNDEBUG -DEDEBUG -UDEBUG
+else
+        App_C_Flags += -DNDEBUG -UEDEBUG -UDEBUG
+endif
+
+App_Cpp_Flags := $(App_C_Flags)
+App_Link_Flags := -L$(SGX_LIBRARY_PATH) -l$(Urts_Library_Name) -lpthread 
+
+######## Enclave Settings ########
 Enclave_Include_Paths := -I$(SGX_SDK)/include -I$(SGX_SDK)/include/tlibc -I$(SGX_SDK)/include/libcxx -I/usr/lib/gcc/x86_64-linux-gnu/11/include
 
 Enclave_C_Flags := $(Enclave_Include_Paths) -nostdinc -fvisibility=hidden -fpie -ffunction-sections -fdata-sections $(MITIGATION_CFLAGS) -D__SGX_ENCLAVE__
@@ -130,12 +142,6 @@ Enclave_Link_Flags := $(MITIGATION_LDFLAGS) $(Enclave_Security_Link_Flags) \
 	-Wl,--defsym,__ImageBase=0 -Wl,--gc-sections   \
 	-Wl,--version-script=Enclave.lds
 
-Enclave_Cpp_Objects := $(sort $(Enclave_Cpp_Files:.cpp=.o))
-
-Enclave_Name := enclave.so
-Signed_Enclave_Name := enclave.signed.so
-Enclave_Config_File := Enclave/Enclave.config.xml
-Enclave_Test_Key := Enclave/Enclave_private_test.pem
 
 ifeq ($(SGX_MODE), HW)
 ifeq ($(SGX_DEBUG), 1)
@@ -180,6 +186,12 @@ Enclave_t.h Enclave_t.c: $(SGX_EDGER8R) Enclave.edl
 Enclave_t.o: Enclave_t.c
 	$(CC) $(SGX_COMMON_CFLAGS) $(Enclave_C_Flags) -c $< -o $@
 
+Enclave_u.h Enclave_u.c: $(SGX_EDGER8R) Enclave.edl
+	$(SGX_EDGER8R) --untrusted Enclave.edl --search-path . --search-path $(SGX_SDK)/include
+
+Enclave_u.o: Enclave_u.c
+	$(CC) $(SGX_COMMON_CFLAGS) $(Enclave_C_Flags) -c $< -o $@
+
 ggml.h: Enclave_t.h
 ggml.o: ggml.c ggml.h
 	$(CC) $(SGX_COMMON_CFLAGS) $(Enclave_C_Flags) -c $< -o $@
@@ -190,8 +202,29 @@ llama.o: llama.cpp llama.h ggml.h
 Enclave_entry.o: Enclave_entry.cpp llama.h
 	$(CXX) $(SGX_COMMON_CXXFLAGS) $(Enclave_Cpp_Flags) -c $< -o $@
 
-llama_enclave.so: Enclave_t.o Enclave_entry.o llama.o ggml.o
+Enclave_Name := llama_enclave.so
+Signed_Enclave_Name := llama_enclave.signed.so
+Enclave_Config_File := Enclave.config.xml
+Enclave_Test_Key := Enclave_private_test.pem
+
+$(Enclave_Name): Enclave_t.o Enclave_entry.o llama.o ggml.o
 	$(CXX) $^ -o $@ $(Enclave_Link_Flags)
+	@echo "LINK =>  $@"
+
+$(Signed_Enclave_Name): $(Enclave_Name) $(Enclave_Config_File)
+ifeq ($(wildcard $(Enclave_Test_Key)),)
+	@echo "There is no enclave test key<Enclave_private_test.pem>."
+	@echo "The project will generate a key<Enclave_private_test.pem> for test."
+	@openssl genrsa -out $(Enclave_Test_Key) -3 3072
+endif
+	@$(SGX_ENCLAVE_SIGNER) sign -key $(Enclave_Test_Key) -enclave $(Enclave_Name) -out $@ -config $(Enclave_Config_File)
+	@echo "SIGN =>  $@"
+
+Untrusted_App.o: Untrusted_App.cpp Enclave_u.h
+	$(CXX) $(SGX_COMMON_CXXFLAGS) $(App_Cpp_Flags) -c $< -o $@
+
+Untrusted_App: Enclave_u.o Untrusted_App.o
+	$(CXX) $^ -o $@ $(App_Link_Flags)
 	@echo "LINK =>  $@"
 
 clean:
