@@ -668,15 +668,15 @@ static bool llama_model_load(
             int32_t ftype;
             ssize_t n;
 
-            read(fd, &n_dims, sizeof(n_dims));
-            read(fd, &length, sizeof(length));
-            read(fd, &ftype,  sizeof(ftype));
-
             n = lseek(fd, 0, SEEK_CUR);
             if (n == lseek(fd, 0, SEEK_END)) {
                 break;
             }
             lseek(fd, n, SEEK_SET);
+
+            read(fd, &n_dims, sizeof(n_dims));
+            read(fd, &length, sizeof(length));
+            read(fd, &ftype,  sizeof(ftype));
 
             int32_t nelements = 1;
             int32_t ne[2] = { 1, 1 };
