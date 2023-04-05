@@ -342,6 +342,7 @@ static void *mmap_file(const char *fname, uint64_t *mm_length) {
     lseek(fd, 0, SEEK_SET);
     void *addr = malloc(length);
     if (addr == NULL) {
+        fprintf(stderr, "malloc failed in %s\n", __func__);
         close(fd);
         return 0;
     }
