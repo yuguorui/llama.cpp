@@ -2,10 +2,12 @@
 
 enclave {
 	from "sgx_tstdc.edl" import *;
+	from "sgx_pthread.edl" import *;
 	include "sgx_user_types.h" /* buffer_t */
 
 	trusted {
 		public int load_model([in, string]const char* model_path, int seed);
+		public int completion([in, string]const char *p_prompt, int n_threads);
 	};
 
 	/* 

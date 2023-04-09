@@ -66,6 +66,43 @@ int fprintf(void *f, const char* fmt, ...)
     return (int)strnlen(buf, BUFSIZ - 1) + 1;
 }
 
+int fputc(int c, void *stream)
+{
+    char buf[2] = { '\0' };
+    buf[0] = (char)c;
+    if (stream == stdout)
+        ocall_print_string(buf);
+    else if (stream == stderr)
+        ocall_print_string_stderr(buf);
+    return c;
+}
+
+int fputs(const char *s, void *stream)
+{
+    if (stream == stdout)
+        ocall_print_string(s);
+    else if (stream == stderr)
+        ocall_print_string_stderr(s);
+    return (int)strlen(s);
+}
+
+ size_t fwrite(const void *ptr, size_t size, size_t nmemb,
+                     void *stream) 
+{
+    char *buf = (char *)malloc(size * nmemb + 1);
+    if (buf == NULL) {
+        return 0;
+    }
+    memcpy(buf, ptr, size * nmemb);
+    buf[size * nmemb] = '\0';
+    if (stream == stdout)
+        ocall_print_string(buf);
+    else if (stream == stderr)
+        ocall_print_string_stderr(buf);
+    free(buf);
+    return nmemb * size;
+}
+
 int open(const char *pathname, int flags) {
     int ret, retval;
     ret = ocall_open(&retval, pathname, flags);
@@ -185,48 +222,30 @@ static int sched_yield (void) {
 #else
 #include <pthread.h>
 
-#ifndef __SGX_ENCLAVE__
-#include <stdatomic.h>
-#else
-typedef volatile long atomic_int;
+typedef volatile int atomic_int;
 typedef atomic_int atomic_bool;
 
-long atomic_fetch_add(atomic_int* variable, long value)
+int atomic_fetch_add(atomic_int* variable, int value)
 {
-    __asm__ volatile("lock; xaddl %0, %1"
-      : "+r" (value), "+m" (*variable) // input + output
-      : // No input-only
-      : "memory"
-    );
-    return value;
+    return __atomic_fetch_add(variable, value, __ATOMIC_SEQ_CST);
 }
 
-long atomic_fetch_sub(atomic_int* variable, long value)
+int atomic_fetch_sub(atomic_int* variable, int value)
 {
     return atomic_fetch_add(variable, -value);
 }
 
-long atomic_load(atomic_int* variable)
+int atomic_load(atomic_int* variable)
 {
-    int value = 0;
-    __asm__ volatile("lock; xchgl %0, %1"
-      : "+r" (value), "+m" (*variable) // input + output
-      : // No input-only
-      : "memory"
-    );
-    return value;
+    return __atomic_load_n(variable, __ATOMIC_SEQ_CST);
 }
 
-long atomic_store(atomic_int* variable, long value)
+void atomic_store(atomic_int* variable, int value)
 {
-    __asm__ volatile("lock; xchgl %0, %1"
-      : "+r" (value), "+m" (*variable) // input + output
-      : // No input-only
-      : "memory"
-    );
-    return value;
+    __atomic_store_n(variable, value, __ATOMIC_SEQ_CST);
 }
 
+#ifdef __SGX_ENCLAVE__
 static int sched_yield (void) {
     sleep(0);
     return 0;
