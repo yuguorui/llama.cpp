@@ -41,3 +41,8 @@ zig-cache/
 Enclave_t.*
 Enclave_u.*
 llama_enclave.so
+llama_enclave.signed.so
+Enclave_private_test.pem
+extern/
+Untrusted_App
+tags
