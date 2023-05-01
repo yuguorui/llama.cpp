@@ -1,37 +1,29 @@
-# llama.cpp
+# llama.enclave
 
-![llama](https://user-images.githubusercontent.com/1991296/230134379-7181e485-c521-4d23-a0d6-f7b3b61ba524.png)
+![llama](./media/ygo_A_llama_in_an_silicon_enclave_f18971d7-7338-4bec-849b-9a10f7e66e5d.png)
 
-[![Actions Status](https://github.com/ggerganov/llama.cpp/workflows/CI/badge.svg)](https://github.com/ggerganov/llama.cpp/actions)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
-Inference of [LLaMA](https://arxiv.org/abs/2302.13971) model in pure C/C++
-
-**Hot topics:**
-
-- [Roadmap Apr 2023](https://github.com/ggerganov/llama.cpp/discussions/784)
+Inference of [LLaMA](https://arxiv.org/abs/2302.13971) model in pure C/C++, running in Intel SGX Enclave.
 
 ## Description
 
-The main goal is to run the model using 4-bit quantization on a MacBook
+The main goal is to run the model using 4-bit quantization in a SGX Enclave
 
-- Plain C/C++ implementation without dependencies
-- Apple silicon first-class citizen - optimized via ARM NEON and Accelerate framework
+- Protect LLM models both in use and in storage
+- Protect the prompt so that it is verifiably only visible inside the enclave
+  - Users are able to verify that the remote service is not [sending your prompts to others](https://www.bbc.com/news/technology-65047304) or for further training
 - AVX2 support for x86 architectures
 - Mixed F16 / F32 precision
 - 4-bit quantization support
 - Runs on the CPU
 
-This was [hacked in an evening](https://github.com/ggerganov/llama.cpp/issues/33#issuecomment-1465108022) - I have no idea if it works correctly.
-Please do not make conclusions about the models based on the results from this implementation.
-For all I know, it can be completely wrong. This project is for educational purposes.
-New features will probably be added mostly through community contributions.
+This was hacked in Tomb-Sweeping holiday, I cannot guarantee it's safe for production use.
+This project is for educational purposes.
 
 **Supported platforms:**
 
-- [X] Mac OS
 - [X] Linux
-- [X] Windows (via CMake)
 - [X] Docker
 
 **Supported models:**
@@ -42,16 +34,6 @@ New features will probably be added mostly through community contributions.
 - [X] [Chinese LLaMA / Alpaca](https://github.com/ymcui/Chinese-LLaMA-Alpaca)
 - [X] [Vigogne (French)](https://github.com/bofenghuang/vigogne)
 - [X] [Vicuna](https://github.com/ggerganov/llama.cpp/discussions/643#discussioncomment-5533894)
-
-**Bindings:**
-
-- Python: [abetlen/llama-cpp-python](https://github.com/abetlen/llama-cpp-python)
-- Go: [go-skynet/go-llama.cpp](https://github.com/go-skynet/go-llama.cpp)
-
-**UI:**
-
-- [nat/openplayground](https://github.com/nat/openplayground)
-- [oobabooga/text-generation-webui](https://github.com/oobabooga/text-generation-webui)
 
 ---
 
