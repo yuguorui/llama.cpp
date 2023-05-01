@@ -11,6 +11,8 @@
 #include <regex>
 #include <cassert>
 #include <cstring>
+#include <streambuf>
+#include <sstream>
 
 #if defined(_WIN32) && !defined(_POSIX_MAPPED_FILES)
 #define WIN32_LEAN_AND_MEAN
@@ -382,6 +384,28 @@ static bool report_bad_magic(const char *path, uint32_t got, uint32_t want) {
     return false;
 }
 
+struct OneShotReadBuf: public std::streambuf
+{
+    OneShotReadBuf(char* s, std::size_t n)
+    {
+        setg(s, s, s + n);
+    }
+
+    std::streampos seekoff (std::streamoff off, std::ios_base::seekdir way, std::ios_base::openmode which = std::ios_base::in | std::ios_base::out) {
+        if (way == std::ios_base::cur) {
+            gbump(off);
+            return gptr() - eback();
+        } else if (way == std::ios_base::beg) {
+            setg(eback(), eback() + off, egptr());
+            return gptr() - eback();
+        } else if (way == std::ios_base::end) {
+            setg(eback(), egptr() + off, egptr());
+            return gptr() - eback();
+        }
+        return -1;
+    }
+};
+
 static bool llama_model_load(
         const std::string & fname,
         llama_context & lctx,
@@ -398,19 +422,22 @@ static bool llama_model_load(
     auto & model = lctx.model;
     auto & vocab = lctx.vocab;
 
-    auto fd = open(fname.c_str(), O_RDONLY);
-    if (fd == -1) {
-        fprintf(stderr, "%s: failed to open '%s'\n", __func__, fname.c_str());
+    // map model into memory
+    char *mm_addr = NULL;
+    model.mm_addr = mmap_file(fname.c_str(), &model.mm_length);
+    if (model.mm_addr == NULL) {
+        fprintf(stderr, "%s: failed to mmap '%s'\n", __func__, fname.c_str());
         return false;
     }
+    mm_addr = (char *)model.mm_addr;
 
-    const size_t file_size = lseek(fd, 0, SEEK_END);
-    lseek(fd, 0, SEEK_SET);
+    auto buf = OneShotReadBuf(mm_addr, model.mm_length);
+    std::istream fin(&buf);
 
     // verify magic
     {
         uint32_t magic;
-        read(fd, &magic, sizeof(magic));
+        fin.read((char *)&magic, sizeof(magic));
         if (magic == LLAMA_FILE_MAGIC_UNVERSIONED) {
             fprintf(stderr, "%s: invalid model file '%s' (too old, regenerate your model files or convert them with convert-unversioned-ggml-to-ggml.py!)\n",
                     __func__, fname.c_str());
@@ -421,7 +448,7 @@ static bool llama_model_load(
         }
 
         uint32_t format_version;
-        read(fd, &format_version, sizeof(format_version));
+        fin.read((char *)&format_version, sizeof(format_version));
 
         if (format_version != LLAMA_FILE_VERSION) {
             fprintf(stderr, "%s: invalid model file '%s' (unsupported format version %" PRIu32 ", expected %d)\n",
@@ -436,14 +463,14 @@ static bool llama_model_load(
     {
         auto & hparams = model.hparams;
 
-        read(fd, &hparams.n_vocab, sizeof(hparams.n_vocab));
-        // read(fd, &hparams.n_ctx,   sizeof(hparams.n_ctx));
-        read(fd, &hparams.n_embd,  sizeof(hparams.n_embd));
-        read(fd, &hparams.n_mult,  sizeof(hparams.n_mult));
-        read(fd, &hparams.n_head,  sizeof(hparams.n_head));
-        read(fd, &hparams.n_layer, sizeof(hparams.n_layer));
-        read(fd, &hparams.n_rot,   sizeof(hparams.n_rot));
-        read(fd, &hparams.f16,     sizeof(hparams.f16));
+        fin.read((char *)&hparams.n_vocab, sizeof(hparams.n_vocab));
+        // fin.read((char *)&hparams.n_ctx,   sizeof(hparams.n_ctx));
+        fin.read((char *)&hparams.n_embd,  sizeof(hparams.n_embd));
+        fin.read((char *)&hparams.n_mult,  sizeof(hparams.n_mult));
+        fin.read((char *)&hparams.n_head,  sizeof(hparams.n_head));
+        fin.read((char *)&hparams.n_layer, sizeof(hparams.n_layer));
+        fin.read((char *)&hparams.n_rot,   sizeof(hparams.n_rot));
+        fin.read((char *)&hparams.f16,     sizeof(hparams.f16));
 
         hparams.n_ctx = n_ctx;
 
@@ -496,19 +523,19 @@ static bool llama_model_load(
 
         for (int i = 0; i < model.hparams.n_vocab; i++) {
             uint32_t len;
-            read(fd, (char *) &len, sizeof(len));
+            fin.read((char *)&len, sizeof(len));
 
             word.resize(len);
             if (len > 0) {
                 tmp.resize(len);
-                read(fd, tmp.data(), len);
+                fin.read(tmp.data(), len);
                 word.assign(tmp.data(), len);
             } else {
                 word.clear();
             }
 
             float score;
-            read(fd, (char *) &score, sizeof(score));
+            fin.read((char *)&score, sizeof(score));
 
             vocab.token_to_id[word] = i;
 
@@ -539,16 +566,6 @@ static bool llama_model_load(
                     return false;
                 }
     }
-
-    // map model into memory
-    char *mm_addr = NULL;
-    model.mm_addr = mmap_file(fname.c_str(), &model.mm_length);
-    if (model.mm_addr == NULL) {
-        fprintf(stderr, "%s: failed to mmap '%s'\n", __func__, fname.c_str());
-        return false;
-    }
-    mm_addr = (char *)model.mm_addr;
-    fprintf(stderr, "%s: ggml map size = %6.2f MB\n", __func__, model.mm_length/(1024.0*1024.0));
 
     auto & ctx = model.ctx;
 
@@ -667,27 +684,24 @@ static bool llama_model_load(
             int32_t n_dims;
             int32_t length;
             int32_t ftype;
-            ssize_t n;
 
-            n = lseek(fd, 0, SEEK_CUR);
-            if (n == lseek(fd, 0, SEEK_END)) {
+            fin.read((char *)&n_dims, sizeof(n_dims));
+            fin.read((char *)&length, sizeof(length));
+            fin.read((char *)&ftype,  sizeof(ftype));
+
+            if (fin.eof()) {
                 break;
             }
-            lseek(fd, n, SEEK_SET);
-
-            read(fd, &n_dims, sizeof(n_dims));
-            read(fd, &length, sizeof(length));
-            read(fd, &ftype,  sizeof(ftype));
 
             int32_t nelements = 1;
             int32_t ne[2] = { 1, 1 };
             for (int i = 0; i < n_dims; ++i) {
-                read(fd, &ne[i], sizeof(ne[i]));
+                fin.read((char *)&ne[i], sizeof(ne[i]));
                 nelements *= ne[i];
             }
 
             std::string name(length, 0);
-            read(fd, &name[0], length);
+            fin.read(&name[0], length);
 
             if (model.tensors.find(name.data()) == model.tensors.end()) {
                 fprintf(stderr, "%s: unknown tensor '%s' in model file\n", __func__, name.data());
@@ -724,22 +738,20 @@ static bool llama_model_load(
             };
 
             // load the tensor data into memory without copying or reading it
-            size_t offset = lseek(fd, 0, SEEK_CUR);
+            size_t offset = fin.tellg();
             size_t tensor_data_size = ggml_nbytes(tensor);
             offset = (offset + 31) & -32;
             tensor->data = mm_addr + offset;
-            lseek(fd, offset + tensor_data_size, SEEK_SET);
+            fin.seekg(offset + tensor_data_size, std::ios::beg);
             total_size += tensor_data_size;
             model.n_loaded++;
 
             // progress
             if (progress_callback) {
-                double current_progress = size_t(lseek(fd, 0, SEEK_CUR)) / double(file_size);
+                double current_progress = size_t(fin.tellg()) / double(model.mm_length);
                 progress_callback(current_progress, progress_callback_user_data);
             }
         }
-
-        close(fd);
 
         fprintf(stderr, "%s: model size = %8.2f MB / num tensors = %d\n", __func__, total_size/1024.0/1024.0, model.n_loaded);
         if (model.n_loaded == 0) {
